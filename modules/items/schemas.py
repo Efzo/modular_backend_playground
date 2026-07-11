@@ -4,7 +4,7 @@ from typing import Optional
 
 #Base Schema with share attribute
 class ItemBase(BaseModel):
-    name: str = Field(..., min_length=20, max_length=100, description="Name of the Item")
+    name: str = Field(..., min_length=2, max_length=100, description="Name of the Item")
     description: Optional[str] = Field(None, max_length=300, description="Detailed item description")
     price: float =  Field(..., gt=0, description="Price must be greater than zero")
     
