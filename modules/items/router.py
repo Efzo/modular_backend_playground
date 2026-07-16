@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
 from modules.items.schemas import ItemCreate, ItemResponse, ItemUpdate
-from core.database import get_db, MockDatabaseSession
+from core.database import get_db
+from sqlalchemy.orm import Session
+from modules.items.models import ItemModel
 
 router = APIRouter(
     prefix="/items", tags=["Items Management"]
@@ -12,53 +14,78 @@ router = APIRouter(
 
 
 @router.get("/", response_model=List[ItemResponse], status_code=status.HTTP_200_OK)
-def get_all_items(db: MockDatabaseSession = Depends(get_db)):
-    return list (db.data.values())
+def get_all_items(db: Session = Depends(get_db)):
+    return db.query(ItemModel).all()
 
 
 @router.get("/{item_id}", response_model=ItemResponse, status_code=status.HTTP_200_OK)
-def get_item(item_id: int, db: MockDatabaseSession = Depends(get_db)):
-    if item_id not in db.data:
-        raise HTTPException(status_code=404, detail=f"item with {item_id} not found")
-    return db.data[item_id]
+def get_item(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item with id {item_id} not found"
+        )
+    return item
 
 
 
 @router.post("/", response_model=ItemResponse, status_code=status.HTTP_201_CREATED)
-def update_item_complete( payload: ItemCreate, db: MockDatabaseSession = Depends(get_db)):
-    db.counter += 1
-    new_item = {"id":db.counter, **payload.model_dump()}
-    db.data[db.counter] = new_item
-    return new_item
+def update_item_complete( payload: ItemCreate, db: Session = Depends(get_db)):
+    db_item = ItemModel(**payload.model_dump())
+    db.add(db_item) #stage the change
+    db.commit()  #write to disk
+    db.refresh(db_item)
+    return db_item
 
 
 @router.put("/{item_id}", response_model=ItemResponse, status_code=status.HTTP_200_OK)
-def update_item_complete(item_id: int, payload:ItemUpdate, db: MockDatabaseSession = Depends(get_db)):
-    if item_id not in db.data:
+def update_item_complete(item_id: int, payload:ItemUpdate,  db: Session = Depends(get_db)):
+    item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+    if item is None:
         raise HTTPException(status_code=404, detail=f"The  item with id {item_id} not found")
-    update_item = {"id": item_id, **payload.model_dump()}
-    db.data[item_id] = update_item
-    return update_item
-
-
-@router.patch("/{item_id}", response_model=ItemResponse, status_code = status.HTTP_200_OK)
-def update_item_partial(item_id: int, payload:ItemUpdate, db: MockDatabaseSession = Depends(get_db)):
-    if item_id not in db.data:
-        raise HTTPException(status_code=404, detail=f"Item with id {item_id} not found")
+    item.name = payload.name
+    item.description = payload.description
+    item.price = payload.price
+    item.buyer = payload.buyer
     
-    stored_item_data = db.data[item_id]
-    # Exclude_unset = True ignores field that the client didn't pass in the request body
-    update_data =  payload.model_dump(exclude_unset = True)
-    update_item = {**stored_item_data, **update_data}
-    db.data[item_id] = update_item
-    return update_item
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+
+@router.patch("/{item_id}", response_model=ItemResponse, status_code=status.HTTP_200_OK)
+def update_item_partial(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db)):
+    item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+    if item is None:
+        raise HTTPException(status_code= 404, detail=f"Item with if {item_id} not found")
+    
+    #Get  only the fields the client
+    update_data = payload.model_dump(exclude_unset=True)
+    
+    #update the model instance
+    for field, value in update_data.items():
+        setattr(item, field, value)
+        
+    #save changes
+    db.commit()
+    
+    # Refresh the instance with the latest data from the database
+    db.refresh(item)
+    return item
+    
+
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_item(item_id: int, db: MockDatabaseSession = Depends(get_db)):
-    if item_id not in db.data:
+def delete_item(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+    if item is None:
         raise HTTPException(status_code = 404, detail=f"item with id{item_id} not found")
-    del db.data[item_id]
+    db.delete(item)
+    db.commit
     return None
 
 

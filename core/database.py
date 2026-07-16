@@ -1,23 +1,34 @@
-from typing import Generator
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import declarative_base, sessionmaker
+from typing import AsyncGenerator
 
 
-class MockDatabaseSession:
-    def __init__(self):
-        #initial seeding
-        self.data =  {
-           1: {"id": 1, "name": "Production Blueprint", "description": " Architecture plans", "price": 49.99},
-           2: {"id": 1, "name": "Debugger Mug", "description": "Holds liquid sanity", "price": 49.95}  
-        }
-        
-        self.counter = 2
+#Notice the driver specification: sqlite+aiosqlite
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
 
-#Instantiate a single global instance representing our "database engine"        
-_db_engine_instance = MockDatabaseSession()        
+#connect_args = {"check_same_thread": False} is required ONLY for SQLite
+
+engine = create_async_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    autocommit=False, 
+    autoflush=False, 
+    bind=engine,
+    expire_on_commit =False  #prevents attributes from becoming stale/inaccessible after commit
+    )
 
 
-def get_db() -> Generator[MockDatabaseSession, None, None]:
-    db_session = _db_engine_instance
-    try: 
-        yield db_session
-    finally:
-        pass    
+Base = declarative_base()
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yields an independent asynchronous transaction session per HTTP request."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            pass  #the async context manager already closes the session on exit     
+    
+    

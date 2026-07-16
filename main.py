@@ -1,5 +1,10 @@
 from fastapi import FastAPI
+from core.database import engine, Base
+from modules.items.models import ItemModel
 from modules.items.router import router as items_router
+
+
+Base.metadata.create_all(bind=engine) #physically create tables if they don't exist
 
 
 app =  FastAPI(
